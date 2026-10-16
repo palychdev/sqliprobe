@@ -35,8 +35,15 @@ def check_value(label, orig, send, findings, base_body, base_status, delay, time
             continue
         dbms = fingerprints.fingerprint(body)
         if dbms or (st == 500 and st != base_status):
-            findings.append({"param": label, "type": "error-based", "payload": pl, "dbms": dbms or "unknown", "status": st})
+            try:
+                st2, body2, _ = send(orig + pl)
+            except requests.RequestException:
+                continue
+            if fingerprints.fingerprint(body2) or (st2 == 500 and st2 != base_status):
+                findings.append({"param": label, "type": "error-based", "payload": pl, "dbms": dbms or "unknown", "status": st, "confirmed": True})
         time.sleep(delay)
+
+    union_probe(label, orig, send, findings, delay, timeout)
 
     for true_pl, false_pl in payloads.BOOLEAN_PAIRS:
         try:
@@ -56,6 +63,25 @@ def check_value(label, orig, send, findings, base_body, base_status, delay, time
             continue
         if elapsed >= secs - 1:
             findings.append({"param": label, "type": "time-based", "payload": pl, "dbms": dbms, "slept": round(elapsed, 1)})
+        time.sleep(delay)
+
+
+def union_probe(label, orig, send, findings, delay, timeout):
+    try:
+        st1, body1, _ = send(orig + payloads.ORDER_BY.format(n=1))
+    except requests.RequestException:
+        return
+    if fingerprints.fingerprint(body1) or st1 == 500:
+        return
+    time.sleep(delay)
+    for n in range(2, 11):
+        try:
+            st, body, _ = send(orig + payloads.ORDER_BY.format(n=n))
+        except requests.RequestException:
+            return
+        if fingerprints.fingerprint(body) or st == 500:
+            findings.append({"param": label, "type": "union-based", "payload": f"ORDER BY 1..{n}", "columns": n - 1, "confirmed": True})
+            return
         time.sleep(delay)
 
 

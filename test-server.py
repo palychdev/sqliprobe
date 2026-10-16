@@ -8,6 +8,14 @@ class H(BaseHTTPRequestHandler):
         pass
 
     def item_body(self, item):
+        up = item.upper()
+        if "ORDER BY" in up:
+            import re
+            m = re.search(r"ORDER BY\s+(\d+)", up)
+            n = int(m.group(1)) if m else 1
+            if n > 3:
+                return "You have an error in your SQL syntax near 'ORDER BY' (mysql)", 200
+            return "<h1>item 1</h1><p>price 100</p>" * 20, 200
         if "'" in item or '"' in item:
             return "You have an error in your SQL syntax near ''1''' (mysql)", 200
         if "1'='2" in item or "1=2" in item:
