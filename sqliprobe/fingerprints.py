@@ -26,6 +26,14 @@ SIGNATURES = {
         "ora-00933",
         "oracle error",
     ],
+    "generic": [
+        "sql syntax",
+        "syntax error",
+        "odbc",
+        "jdbc",
+        "database error",
+        "sqlstate",
+    ],
 }
 
 
