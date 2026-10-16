@@ -3,6 +3,8 @@ import json
 
 def console(result):
     print(f"target: {result['url']} (base http {result['base_status']})")
+    if result.get("waf", {}).get("waf"):
+        print(f"waf: {result['waf']['waf']}" + (" (режет кавычки)" if result['waf'].get("blocked") else ""))
     if not result["findings"]:
         print("sqli: ничего. либо чисто, либо waf съел пейлоады.")
     for f in result["findings"]:
