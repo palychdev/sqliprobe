@@ -26,7 +26,10 @@ def get(url, timeout):
 def scan(url, delay=1.0, timeout=15, time_sleep=5):
     parts, params = split_url(url)
     findings = []
-    base_status, base_body, _ = get(build_url(parts, params), timeout)
+    try:
+        base_status, base_body, _ = get(build_url(parts, params), timeout)
+    except requests.RequestException:
+        raise ValueError("цель не отвечает, проверь url и что сервер поднят")
 
     for name in params:
         orig = params[name][0]
