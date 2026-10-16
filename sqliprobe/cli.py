@@ -17,6 +17,7 @@ def main(argv=None):
     ap.add_argument("--max-pages", type=int, default=10, help="лимит страниц при краулинге")
     ap.add_argument("--no-recon", action="store_true", help="без разведки заголовков/файлов")
     ap.add_argument("--json", dest="json_out", default=None, help="куда сохранить отчёт")
+    ap.add_argument("--html", dest="html_out", default=None, help="html-отчёт")
     args = ap.parse_args(argv)
 
     print(BANNER)
@@ -36,6 +37,8 @@ def main(argv=None):
     report.console(result)
     if args.json_out:
         report.save_json(result, args.json_out)
+    if args.html_out:
+        report.save_html(result, args.html_out)
     return 0
 
 
