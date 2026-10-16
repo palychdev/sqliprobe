@@ -39,14 +39,19 @@ def exposed_files(base, timeout):
             r = requests.get(urljoin(base, path), timeout=timeout, headers=UA)
         except requests.RequestException:
             continue
-        if path == ".git/HEAD" and r.status_code == 200 and "ref:" in r.text:
+        if r.status_code != 200 or not r.text.strip():
+            continue
+        low = r.text.lower()
+        if path == ".git/HEAD" and "ref:" in r.text:
             out.append({"item": ".git/HEAD exposed — repo readable"})
-        elif path == ".env" and r.status_code == 200 and "=" in r.text:
+        elif path == ".env" and any(k in low for k in ("db_", "app_key", "db_password", "secret", "api_key")):
             out.append({"item": ".env exposed"})
-        elif path in ("robots.txt", "sitemap.xml") and r.status_code == 200:
+        elif path == "robots.txt" and ("user-agent:" in low or "disallow:" in low):
             interesting = [l.strip() for l in r.text.splitlines() if l.strip().lower().startswith("disallow:") and l.strip() != "Disallow:"]
             out.append({"item": f"{path} ({len(interesting)} disallowed)" if interesting else path})
             out += [{"item": f"robots hides: {d}"} for d in interesting[:10]]
+        elif path == "sitemap.xml" and ("<url" in low or "sitemapindex" in low):
+            out.append({"item": path})
     return out
 
 
