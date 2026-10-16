@@ -3,7 +3,7 @@ from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 import requests
 
-from . import payloads, fingerprints, crawler
+from . import payloads, fingerprints, crawler, recon
 
 UA = {"User-Agent": "sqliprobe/0.2"}
 
@@ -118,7 +118,7 @@ def scan_post_form(form, delay, timeout):
     return findings
 
 
-def scan(url, delay=1.0, timeout=15, crawl=False, max_pages=10):
+def scan(url, delay=1.0, timeout=15, crawl=False, max_pages=10, recon_on=True):
     findings = []
     base_status = None
     tested = set()
@@ -170,4 +170,5 @@ def scan(url, delay=1.0, timeout=15, crawl=False, max_pages=10):
         except ValueError:
             continue
 
-    return {"url": url, "base_status": base_status, "findings": findings}
+    recon_out = recon.run(url, timeout) if recon_on else []
+    return {"url": url, "base_status": base_status, "findings": findings, "recon": recon_out}

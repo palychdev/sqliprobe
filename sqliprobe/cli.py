@@ -15,6 +15,7 @@ def main(argv=None):
     ap.add_argument("--timeout", type=int, default=15)
     ap.add_argument("--crawl", action="store_true", help="пройти по ссылкам сайта (только свой хост)")
     ap.add_argument("--max-pages", type=int, default=10, help="лимит страниц при краулинге")
+    ap.add_argument("--no-recon", action="store_true", help="без разведки заголовков/файлов")
     ap.add_argument("--json", dest="json_out", default=None, help="куда сохранить отчёт")
     args = ap.parse_args(argv)
 
@@ -24,7 +25,7 @@ def main(argv=None):
         return 2
 
     try:
-        result = scanner.scan(args.url, delay=args.delay, timeout=args.timeout, crawl=args.crawl, max_pages=args.max_pages)
+        result = scanner.scan(args.url, delay=args.delay, timeout=args.timeout, crawl=args.crawl, max_pages=args.max_pages, recon_on=not args.no_recon)
     except ValueError as e:
         print(f"ошибка: {e}")
         return 1
