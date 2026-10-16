@@ -3,18 +3,22 @@ from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 import requests
 
-from . import payloads, fingerprints, crawler, recon
+from . import payloads, fingerprints, crawler, recon, tampers, waf
 
 UA = {"User-Agent": "sqliprobe/0.2"}
+CTX = {"technique": "BEUT", "tampers": []}
+
+S = requests.Session()
+S.headers.update(UA)
 
 
 def get(url, timeout):
-    r = requests.get(url, timeout=timeout, headers=UA)
+    r = S.get(url, timeout=timeout)
     return r.status_code, r.text, r.elapsed.total_seconds()
 
 
 def post(url, data, timeout):
-    r = requests.post(url, data=data, timeout=timeout, headers=UA)
+    r = S.post(url, data=data, timeout=timeout)
     return r.status_code, r.text, r.elapsed.total_seconds()
 
 
@@ -26,36 +30,52 @@ def build_url(parts, params):
     return urlunparse((parts.scheme, parts.netloc, parts.path, parts.params, urlencode(params, doseq=True), parts.fragment))
 
 
-def check_value(label, orig, send, findings, base_body, base_status, delay, timeout):
+def error_pass(label, orig, send, findings, base_status, delay, timeout, use_tamper):
+    hit = False
     for pl in payloads.ERROR_TESTS:
+        p = tampers.apply(pl, CTX["tampers"]) if use_tamper else pl
         try:
-            st, body, _ = send(orig + pl)
+            st, body, _ = send(orig + p)
         except requests.RequestException as e:
             findings.append({"param": label, "type": "request-error", "detail": str(e)[:120]})
             continue
         dbms = fingerprints.fingerprint(body)
         if dbms or (st == 500 and st != base_status):
             try:
-                st2, body2, _ = send(orig + pl)
+                st2, body2, _ = send(orig + p)
             except requests.RequestException:
                 continue
             if fingerprints.fingerprint(body2) or (st2 == 500 and st2 != base_status):
-                findings.append({"param": label, "type": "error-based", "payload": pl, "dbms": dbms or "unknown", "status": st, "confirmed": True})
+                findings.append({"param": label, "type": "error-based", "payload": p, "dbms": dbms or "unknown", "status": st, "confirmed": True})
+                hit = True
         time.sleep(delay)
+    return hit
 
-    union_probe(label, orig, send, findings, delay, timeout)
 
-    for true_pl, false_pl in payloads.BOOLEAN_PAIRS:
-        try:
-            _, t_body, _ = send(orig + true_pl)
+def check_value(label, orig, send, findings, base_body, base_status, delay, timeout):
+    tech = CTX["technique"]
+    if "E" in tech:
+        hit = error_pass(label, orig, send, findings, base_status, delay, timeout, False)
+        if not hit and CTX["tampers"]:
+            error_pass(label, orig, send, findings, base_status, delay, timeout, True)
+
+    if "B" in tech:
+        for true_pl, false_pl in payloads.BOOLEAN_PAIRS:
+            try:
+                _, t_body, _ = send(orig + true_pl)
+                time.sleep(delay)
+                _, f_body, _ = send(orig + false_pl)
+            except requests.RequestException:
+                continue
+            if abs(len(t_body) - len(f_body)) > max(50, len(base_body) * 0.05):
+                findings.append({"param": label, "type": "boolean-based", "payload": f"{true_pl} / {false_pl}"})
             time.sleep(delay)
-            _, f_body, _ = send(orig + false_pl)
-        except requests.RequestException:
-            continue
-        if abs(len(t_body) - len(f_body)) > max(50, len(base_body) * 0.05):
-            findings.append({"param": label, "type": "boolean-based", "payload": f"{true_pl} / {false_pl}"})
-        time.sleep(delay)
 
+    if "U" in tech:
+        union_probe(label, orig, send, findings, delay, timeout)
+
+    if "T" not in tech:
+        return
     for pl, secs, dbms in payloads.TIME_PAYLOADS:
         try:
             _, _, elapsed = send(orig + pl, timeout + secs + 5)
@@ -144,10 +164,32 @@ def scan_post_form(form, delay, timeout):
     return findings
 
 
-def scan(url, delay=1.0, timeout=15, crawl=False, max_pages=10, recon_on=True):
+def scan_cookies(url, delay, timeout):
+    try:
+        base_status, base_body, _ = get(url, timeout)
+    except requests.RequestException:
+        raise ValueError("цель не отвечает, проверь url и что сервер поднят")
+    findings = []
+    for c in S.cookies:
+        orig = c.value or "1"
+
+        def send(v, to=timeout, n=c.name):
+            r = S.get(url, cookies={n: v}, timeout=to)
+            return r.status_code, r.text, r.elapsed.total_seconds()
+
+        check_value(f"{url} :: cookie {c.name}", orig, send, findings, base_body, base_status, delay, timeout)
+    return findings
+
+
+def scan(url, delay=1.0, timeout=15, crawl=False, max_pages=10, recon_on=True,
+         technique="BEUT", level=2, tampers=None, threads=3):
+    from concurrent.futures import ThreadPoolExecutor
+    CTX["technique"] = technique.upper()
+    CTX["tampers"] = tampers or []
     findings = []
     base_status = None
     tested = set()
+    waf_info = waf.detect(url, timeout)
 
     if split_params(url):
         f, base_status = scan_get_params(url, delay, timeout)
@@ -165,8 +207,13 @@ def scan(url, delay=1.0, timeout=15, crawl=False, max_pages=10, recon_on=True):
         base_status = 200
 
     pts = crawler.discover(url, page)
-    for form in pts["post_forms"]:
-        findings += scan_post_form(form, delay, timeout)
+    if level >= 2:
+        for form in pts["post_forms"]:
+            findings += scan_post_form(form, delay, timeout)
+        try:
+            findings += scan_cookies(url, delay, timeout)
+        except ValueError:
+            pass
 
     queue = [u for u in pts["links"] if u not in tested][:max_pages]
     if crawl:
@@ -189,12 +236,19 @@ def scan(url, delay=1.0, timeout=15, crawl=False, max_pages=10, recon_on=True):
             depth = nxt
             time.sleep(delay)
 
-    for u in queue[:max_pages]:
-        try:
-            f, _ = scan_get_params(u, delay, timeout)
-            findings += f
-        except ValueError:
-            continue
+    if level >= 2:
+        with ThreadPoolExecutor(max_workers=max(1, threads)) as pool:
+            for f in pool.map(lambda u: safe_params(u, delay, timeout), queue[:max_pages]):
+                findings += f
 
     recon_out = recon.run(url, timeout) if recon_on else []
-    return {"url": url, "base_status": base_status, "findings": findings, "recon": recon_out}
+    return {"url": url, "base_status": base_status, "findings": findings,
+            "recon": recon_out, "waf": waf_info, "technique": CTX["technique"], "level": level}
+
+
+def safe_params(u, delay, timeout):
+    try:
+        f, _ = scan_get_params(u, delay, timeout)
+        return f
+    except ValueError:
+        return []
