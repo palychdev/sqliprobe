@@ -9,10 +9,12 @@ BANNER = """sqliprobe: сканируй ТОЛЬКО свои сайты или 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="sqliprobe", description="sqli checker for your own sites")
-    ap.add_argument("--url", required=True, help="цель с get-параметром, напр. http://localhost/item?id=1")
+    ap.add_argument("--url", required=True, help="цель: страница, ссылка с ?id= или /news/5")
     ap.add_argument("--consent", action="store_true", help="подтверждаю: сайт мой или есть разрешение")
     ap.add_argument("--delay", type=float, default=1.0, help="пауза между запросами, сек")
     ap.add_argument("--timeout", type=int, default=15)
+    ap.add_argument("--crawl", action="store_true", help="пройти по ссылкам сайта (только свой хост)")
+    ap.add_argument("--max-pages", type=int, default=10, help="лимит страниц при краулинге")
     ap.add_argument("--json", dest="json_out", default=None, help="куда сохранить отчёт")
     args = ap.parse_args(argv)
 
@@ -22,7 +24,7 @@ def main(argv=None):
         return 2
 
     try:
-        result = scanner.scan(args.url, delay=args.delay, timeout=args.timeout)
+        result = scanner.scan(args.url, delay=args.delay, timeout=args.timeout, crawl=args.crawl, max_pages=args.max_pages)
     except ValueError as e:
         print(f"ошибка: {e}")
         return 1
